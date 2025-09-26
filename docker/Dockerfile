@@ -5,7 +5,7 @@ RUN mkdir -p /usr/src/app
 WORKDIR /usr/src/app
 
 # Clone game source code
-COPY . /usr/src/app/
+RUN git clone https://github.com/splunk/pacman.git .
 
 # Install app dependencies
 RUN npm install
