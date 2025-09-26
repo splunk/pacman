@@ -25,7 +25,7 @@ npm run dev
 
 The [Dockerfile](docker/Dockerfile) performs the following steps:
 
-1. It is based on Node.js LTS Version 6 (Boron).
+1. It is based on Node.js LTS Version 22 (Jod).
 1. It then clones the Pac-Man game into the configured application directory.
 1. Exposes port 8080 for the web server.
 1. Starts the Node.js application using `npm start`.
@@ -51,8 +51,8 @@ Once you're satisfied you can push the image to the container registry.
 docker push <registry>/<user>/pacman-nodejs-app
 ```
 
-### Building using an s2i image
+## Deploy on Kubernetes
 
-```
-s2i build . centos/nodejs-6-centos7 pacman
-```
+You can use [k8s.yaml](./kubernetes/k8s.yaml) file to deploy pacman application to Kubernetes cluster.
+
+Please update the pacman image with your docker image in [k8s.yaml](./kubernetes/k8s.yaml#L101) file prior deploying the app.

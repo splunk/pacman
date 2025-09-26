@@ -1,95 +1,97 @@
-var express = require('express');
-var router = express.Router();
-var bodyParser = require('body-parser');
-var Database = require('../lib/database');
+const express = require('express');
+const bodyParser = require('body-parser');
+const Database = require('../lib/database');
 
-// create application/x-www-form-urlencoded parser
-var urlencodedParser = bodyParser.urlencoded({ extended: false })
+const router = express.Router();
 
-// middleware that is specific to this router
-router.use(function timeLog (req, res, next) {
-    console.log('Time: ', Date());
+// Create application/x-www-form-urlencoded parser
+const urlencodedParser = bodyParser.urlencoded({ extended: false });
+
+// Middleware that is specific to this router
+router.use((req, res, next) => {
+    console.log('Time:', new Date());
     next();
-})
-
-router.get('/list', urlencodedParser, function(req, res, next) {
-    console.log('[GET /highscores/list]');
-    Database.getDb(req.app, function(err, db) {
-        if (err) {
-            return next(err);
-        }
-
-        // Retrieve the top 10 high scores
-        var col = db.collection('highscore');
-        col.find({}).sort([['score', -1]]).limit(10).toArray(function(err, docs) {
-            var result = [];
-            if (err) {
-                console.log(err);
-            }
-
-            docs.forEach(function(item, index, array) {
-                result.push({ name: item['name'], cloud: item['cloud'],
-                              zone: item['zone'], host: item['host'],
-                              score: item['score'] });
-            });
-
-            res.json(result);
-        });
-    });
 });
 
-// Accessed at /highscores
-router.post('/', urlencodedParser, function(req, res, next) {
+// GET: Retrieve top 10 high scores
+router.get('/list', urlencodedParser, async (req, res, next) => {
+    console.log('[GET /highscores/list]');
+    try {
+        const db = await Database.getDb(req.app); // Get the database instance
+        const collection = db.collection('highscore');
+
+        // Retrieve the top 10 high scores
+        const docs = await collection
+            .find({})
+            .sort({ score: -1 }) // Sort by score in descending order
+            .limit(10)
+            .toArray();
+
+        // Transform the results for the response
+        const result = docs.map(item => ({
+            name: item.name,
+            cloud: item.cloud,
+            zone: item.zone,
+            host: item.host,
+            score: item.score,
+        }));
+
+        res.json(result); // Respond with the high scores
+    } catch (err) {
+        console.error('Error fetching high scores:', err);
+        next(err); // Pass the error to the Express error handler
+    }
+});
+
+// POST: Insert a new high score
+router.post('/', urlencodedParser, async (req, res, next) => {
     console.log('[POST /highscores] body =', req.body,
-                ' host =', req.headers.host,
-                ' user-agent =', req.headers['user-agent'],
-                ' referer =', req.headers.referer);
+        ' host =', req.headers.host,
+        ' user-agent =', req.headers['user-agent'],
+        ' referer =', req.headers.referer);
 
-    var userScore = parseInt(req.body.score, 10),
-        userLevel = parseInt(req.body.level, 10);
+    try {
+        const db = await Database.getDb(req.app); // Get the database instance
+        const userScore = parseInt(req.body.score, 10);
+        const userLevel = parseInt(req.body.level, 10);
 
-    Database.getDb(req.app, function(err, db) {
-        if (err) {
-            return next(err);
-        }
+        // Insert a new high score record
+        const result = await db.collection('highscore').insertOne({
+            name: req.body.name,
+            cloud: req.body.cloud,
+            zone: req.body.zone,
+            host: req.body.host,
+            score: userScore,
+            level: userLevel,
+            date: new Date(),
+            referer: req.headers.referer,
+            user_agent: req.headers['user-agent'],
+            hostname: req.hostname,
+            ip_addr: req.ip,
+        });
 
-        // Insert high score with extra user data
-        db.collection('highscore').insertOne({
-                name: req.body.name,
-                cloud: req.body.cloud,
-                zone: req.body.zone,
-                host: req.body.host,
-                score: userScore,
-                level: userLevel,
-                date: Date(),
-                referer: req.headers.referer,
-                user_agent: req.headers['user-agent'],
-                hostname: req.hostname,
-                ip_addr: req.ip
-            }, {
-                w: 'majority',
-                j: true,
-                wtimeout: 10000
-            }, function(err, result) {
-                var returnStatus = '';
+        console.log('Successfully inserted high score:', result.insertedId);
 
-                if (err) {
-                    console.log(err);
-                    returnStatus = 'error';
-                } else {
-                    console.log('Successfully inserted highscore');
-                    returnStatus = 'success';
-                }
+        res.json({
+            name: req.body.name,
+            zone: req.body.zone,
+            score: userScore,
+            level: userLevel,
+            rs: 'success',
+        });
+    } catch (err) {
+        console.error('Error inserting high score:', err);
 
-                res.json({
-                    name: req.body.name,
-                    zone: req.body.zone,
-                    score: userScore,
-                    level: userLevel,
-                    rs: returnStatus
-                });
-            });
-    });
+        res.json({
+            name: req.body.name,
+            zone: req.body.zone,
+            score: req.body.score,
+            level: req.body.level,
+            rs: 'error',
+        });
+
+        next(err); // Pass the error to the Express error handler
+    }
 });
 
 module.exports = router;

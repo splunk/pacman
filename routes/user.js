@@ -1,69 +1,56 @@
-var express = require('express');
-var router = express.Router();
-var bodyParser = require('body-parser');
-var ObjectId = require('mongodb').ObjectId;
-var Database = require('../lib/database');
+const express = require('express');
+const { ObjectId } = require('mongodb');
+const Database = require('../lib/database');
 
-// create application/x-www-form-urlencoded parser
-var urlencodedParser = bodyParser.urlencoded({ extended: false })
+const router = express.Router();
 
-
-// middleware that is specific to this router
-router.use(function timeLog (req, res, next) {
-    console.log('Time: ', Date());
+// Middleware that logs the time of the request
+router.use((req, res, next) => {
+    console.log('Time:', new Date());
     next();
-})
-
-router.get('/id', function(req, res, next) {
-    console.log('[GET /user/id]');
-    Database.getDb(req.app, function(err, db) {
-        if (err) {
-            return next(err);
-        }
-
-        // Insert user ID and return back generated ObjectId
-        var userId = 0;
-        db.collection('userstats').insertOne({
-            date: Date()
-        }, {
-           w: 'majority',
-           j: true,
-           wtimeout: 10000
-        }, function(err, result) {
-           if (err) {
-               console.log('failed to insert new user ID err =', err);
-           } else {
-               userId = result.insertedId;
-               console.log('Successfully inserted new user ID = ', userId);
-           }
-
-           res.json(userId);
-        });
-    });
-
 });
 
-router.post('/stats', urlencodedParser, function(req, res, next) {
+// Route: Generate a new user ID
+router.get('/id', async (req, res, next) => {
+    console.log('[GET /user/id]');
+
+    try {
+        const db = await Database.getDb(req.app); // Get the database instance
+
+        const result = await db.collection('userstats').insertOne({
+            date: new Date(),
+        });
+
+        const userId = result.insertedId;
+        console.log('Successfully inserted new user ID =', userId);
+
+        res.json(userId); // Respond with the generated ObjectId
+    } catch (err) {
+        console.error('Failed to insert new user ID:', err);
+        next(err); // Pass the error to the Express error handler
+    }
+});
+
+// Route: Update user stats
+router.post('/stats', express.urlencoded({ extended: false }), async (req, res, next) => {
     console.log('[POST /user/stats]\n',
-                ' body =', req.body, '\n',
-                ' host =', req.headers.host,
-                ' user-agent =', req.headers['user-agent'],
-                ' referer =', req.headers.referer);
+        ' body =', req.body, '\n',
+        ' host =', req.headers.host,
+        ' user-agent =', req.headers['user-agent'],
+        ' referer =', req.headers.referer);
 
-    var userScore = parseInt(req.body.score, 10),
-        userLevel = parseInt(req.body.level, 10),
-        userLives = parseInt(req.body.lives, 10),
-        userET = parseInt(req.body.elapsedTime, 10);
+    const userScore = parseInt(req.body.score, 10);
+    const userLevel = parseInt(req.body.level, 10);
+    const userLives = parseInt(req.body.lives, 10);
+    const userET = parseInt(req.body.elapsedTime, 10);
 
-    Database.getDb(req.app, function(err, db) {
-        if (err) {
-            return next(err);
-        }
+    try {
+        const db = await Database.getDb(req.app); // Get the database instance
 
-        // Update live user stats
-        db.collection('userstats').updateOne({
-                _id: new ObjectId(req.body.userId),
-            }, { $set: {
+        const result = await db.collection('userstats').updateOne(
+            { _id: new ObjectId(req.body.userId) }, // Filter
+            { 
+                $set: { // Data to update
                     cloud: req.body.cloud,
                     zone: req.body.zone,
                     host: req.body.host,
@@ -71,70 +58,63 @@ router.post('/stats', urlencodedParser, function(req, res, next) {
                     level: userLevel,
                     lives: userLives,
                     elapsedTime: userET,
-                    date: Date(),
+                    date: new Date(),
                     referer: req.headers.referer,
                     user_agent: req.headers['user-agent'],
                     hostname: req.hostname,
-                    ip_addr: req.ip
-               }, $inc: {
-                    updateCounter: 1
-               }
-            }, {
-                w: 'majority',
-                j: true,
-                wtimeout: 10000
-            }, function(err, result) {
-                var returnStatus = '';
+                    ip_addr: req.ip,
+                },
+                $inc: { // Increment update counter
+                    updateCounter: 1,
+                },
+            },
+            { 
+                writeConcern: { w: 'majority', j: true, wtimeout: 10000 }, // Write options
+            }
+        );
 
-                if (err) {
-                    console.log(err);
-                    returnStatus = 'error';
-                } else {
-                    console.log('Successfully updated user stats');
-                    returnStatus = 'success';
-                }
-
-                res.json({
-                    rs: returnStatus
-                });
-        });
-    });
-});
-
-router.get('/stats', function(req, res, next) {
-    console.log('[GET /user/stats]');
-
-    Database.getDb(req.app, function(err, db) {
-        if (err) {
-            return next(err);
+        const returnStatus = result.matchedCount > 0 ? 'success' : 'error';
+        if (returnStatus === 'success') {
+            console.log('Successfully updated user stats');
+        } else {
+            console.log('No matching user found for update');
         }
 
-        // Find all elements where the score field exists to avoid
-        // undefined values
-        var col = db.collection('userstats');
-        col.find({ score: {$exists: true}}).sort([['_id', 1]]).toArray(function(err, docs) {
-            var result = [];
-            if (err) {
-                console.log(err);
-            }
-
-            docs.forEach(function(item, index, array) {
-                result.push({
-                                cloud: item['cloud'],
-                                zone: item['zone'],
-                                host: item['host'],
-                                score: item['score'],
-                                level: item['level'],
-                                lives: item['lives'],
-                                et: item['elapsedTime'],
-                                txncount: item['updateCounter']
-                });
-            });
-
-            res.json(result);
-        });
-    });
+        res.json({ rs: returnStatus }); // Respond with the status
+    } catch (err) {
+        console.error('Error updating user stats:', err);
+        next(err); // Pass the error to the Express error handler
+    }
 });
 
+// Route: Retrieve all user stats
+router.get('/stats', async (req, res, next) => {
+    console.log('[GET /user/stats]');
+
+    try {
+        const db = await Database.getDb(req.app); // Get the database instance
+
+        const docs = await db.collection('userstats')
+            .find({ score: { $exists: true } }) // Filter for documents with a `score` field
+            .sort({ _id: 1 }) // Sort by `_id` in ascending order
+            .toArray(); // Convert the cursor to an array
+
+        const result = docs.map(item => ({
+            cloud: item.cloud,
+            zone: item.zone,
+            host: item.host,
+            score: item.score,
+            level: item.level,
+            lives: item.lives,
+            et: item.elapsedTime,
+            txncount: item.updateCounter,
+        }));
+
+        res.json(result); // Respond with the user stats
+    } catch (err) {
+        console.error('Error fetching user stats:', err);
+        next(err); // Pass the error to the Express error handler
+    }
+});
 
 module.exports = router;

@@ -1,13 +1,11 @@
-FROM node:boron
-
-MAINTAINER Ivan Font <ifont@redhat.com>
+FROM node:jod
 
 # Create app directory
 RUN mkdir -p /usr/src/app
 WORKDIR /usr/src/app
 
 # Clone game source code
-RUN git clone https://github.com/font/pacman.git .
+COPY . /usr/src/app/
 
 # Install app dependencies
 RUN npm install
